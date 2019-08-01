@@ -43,6 +43,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "llvm/IR/Function.h"
+#include "llvm/IR/Module.h"
 
 #define DEBUG_TYPE "block-freq"
 
@@ -1144,6 +1146,23 @@ template <class BT> void BlockFrequencyInfoImpl<BT>::computeMassInLoops() {
   }
 }
 
+// lld: OpenMP offloading outer loop
+namespace bfi_detail {
+template <class FT>
+void changeLoopScale(ScaledNumber<uint64_t> *Scale, const FT *F) {}
+template <>
+inline void changeLoopScale<Function>(ScaledNumber<uint64_t> *Scale,
+                                      const Function *F) {
+  auto *M = F->getParent();
+  std::string TT = M->getTargetTriple();
+  if (TT.find("cuda") != std::string::npos) {
+    dbgs() << "change loop scale from " << *Scale << " to ";
+    *Scale = ScaledNumber<uint64_t>(1, 0).inverse();
+    dbgs() << *Scale << "\n";
+  }
+}
+} // namespace bfi_detail
+
 template <class BT>
 bool BlockFrequencyInfoImpl<BT>::computeMassInLoop(LoopData &Loop) {
   // Compute mass in loop.
@@ -1214,6 +1233,9 @@ bool BlockFrequencyInfoImpl<BT>::computeMassInLoop(LoopData &Loop) {
   }
 
   computeLoopScale(Loop);
+  // lld: OpenMP offloading outer loop
+  if (&Loop == &(*Loops.begin()))
+    bfi_detail::changeLoopScale(&(Loop.Scale), F);
   packageLoop(Loop);
   return true;
 }
